@@ -391,6 +391,66 @@
     .mascot { width: 54px; height: 54px; }
     .pic { padding: 10px 2px 8px; border-radius: 22px; }
   }
+  /* ---------- phones (portrait): everything fits on one screen, sizes follow the screen height too ---------- */
+  @media (max-width: 520px) {
+    .screen { padding: 10px 12px 64px; }
+    #game { padding-bottom: 56px; }
+    .grass { height: 60px; }
+    .flowers { font-size: 20px; bottom: 4px; }
+    .music-btn { width: 46px; height: 46px; font-size: 22px; left: 10px; bottom: 10px; }
+
+    /* home */
+    .hero { width: min(100%, calc(26dvh * 16 / 9)); border-width: 4px; border-radius: 24px; }
+    h1.title { font-size: clamp(28px, min(9vw, 5.5dvh), 44px); margin: 8px 0 0; }
+    .subtitle { font-size: 15px; margin: 0 0 10px; }
+    .stages { gap: 8px; }
+    .stage-btn { padding: 5px 8px; border-radius: 20px; border-width: 3px; }
+    .stage-btn img { width: min(64px, 8.5dvh); border-radius: 12px; }
+    .stage-btn .lbl { font-size: 17px; }
+    details.parents { margin-top: 10px; }
+
+    /* top bar */
+    .topbar { gap: 6px; }
+    .round-btn { width: 42px; height: 42px; font-size: 20px; }
+    .mascot { width: 42px; height: 42px; border-width: 3px; }
+    .progress { gap: 2px; font-size: 18px; }
+
+    .stage-area { gap: 12px; }
+
+    /* stage 1: smaller dog scene, letter tiles shrink on short screens */
+    .track { zoom: .78; }
+    .tiles { width: min(380px, 100%, 52dvh); gap: 10px; }
+    .tile { font-size: clamp(48px, min(20vw, 11dvh), 110px); border-radius: 26px; }
+
+    /* stage 2 + 3 */
+    .big-letter { width: clamp(110px, min(46vw, 24dvh), 260px); font-size: clamp(70px, min(30vw, 16dvh), 180px); border-width: 6px; }
+    .big-letter.mini { width: clamp(76px, min(22vw, 13dvh), 120px); font-size: clamp(46px, min(14vw, 8.5dvh), 80px); }
+    .mic { width: 90px; height: 90px; font-size: 64px; }
+    .pill { padding: 9px 16px; font-size: 17px; }
+    .pic { border-width: 4px; }
+    .pic img { width: clamp(52px, min(15vw, 9dvh), 100px); height: clamp(52px, min(15vw, 9dvh), 100px); }
+    .pic .word { font-size: clamp(16px, 4.4vw, 22px); }
+
+    /* stage 4 */
+    .trace-box { width: min(460px, calc(100vw - 32px), calc(100dvh - 280px)); min-width: min(240px, calc(100vw - 32px)); border-radius: 30px; }
+
+    /* win */
+    .win-card img { aspect-ratio: 16/9; }
+    .big-btn { padding: 11px 20px; }
+  }
+
+  /* phone turned sideways: there isn't room for the game — ask to turn it back */
+  .rotate-msg { display: none; }
+  @media (orientation: landscape) and (max-height: 500px) {
+    .rotate-msg {
+      display: grid; place-items: center; align-content: center; gap: 8px; position: fixed; inset: 0; z-index: 200;
+      background: linear-gradient(180deg, var(--sky-top), var(--sky-bottom)); text-align: center;
+      font-family: "Secular One", sans-serif; font-size: 26px; color: #ff7aa2;
+    }
+    .rotate-msg .icon { font-size: 70px; animation: turn 2s ease-in-out infinite; }
+  }
+  @keyframes turn { 0%, 30% { transform: rotate(-90deg); } 60%, 100% { transform: rotate(0); } }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
   }
@@ -404,6 +464,7 @@
   <div class="flowers"><span>🌷</span><span>🌼</span><span>🌸</span><span>🌻</span><span>🌷</span><span>🌼</span><span>🌸</span></div>
 </div>
 
+<div class="rotate-msg" aria-live="polite"><div class="icon">📱</div>סובבו את הטלפון<br>כדי לשחק 🙂</div>
 <button class="music-btn" id="musicBtn" aria-label="מוזיקה">🎵</button>
 <div class="start-overlay" id="startOverlay" hidden><button class="start-btn" id="startBtn">▶ בואו נשחק!</button></div>
 
@@ -547,7 +608,13 @@ function toClips(text) {
   return out.length ? out : null;
 }
 const audioCache = {};
-const clipAudio = src => audioCache[src] || (audioCache[src] = Object.assign(new Audio(src), { preload: 'auto' }));
+const CLIP_BLOBS = {}; // src -> blob: URL, filled by the preloader at the end of the page so clips play instantly
+const clipAudio = src => {
+  const url = CLIP_BLOBS[src] || src;
+  const a = audioCache[src];
+  if (a && (a.src.startsWith('blob:') || !CLIP_BLOBS[src])) return a;
+  return (audioCache[src] = Object.assign(new Audio(url), { preload: 'auto' }));
+};
 let clipToken = 0, clipPlaying = false;
 function stopVoice() {
   clipToken++; clipPlaying = false;
@@ -1846,8 +1913,24 @@ function lettersDance(done) {
   const loadScript = src => new Promise(done => {
     const s = document.createElement('script'); s.src = src; s.onload = s.onerror = done; document.body.appendChild(s);
   });
+  // narration clips: download all of them once (≈2.7MB) so a sentence doesn't wait for each piece
+  const loadClip = async src => {
+    if (CLIP_BLOBS[src]) return;
+    try {
+      const r = await fetch(src);
+      if (r.ok) CLIP_BLOBS[src] = URL.createObjectURL(await r.blob());
+    } catch {}
+  };
+  const loadClips = async () => {
+    if (location.protocol === 'file:') return; // opened from the computer: files are already local
+    const list = [...new Set(CLIPS.values())];
+    const worker = async () => { while (list.length) await loadClip(list.shift()); };
+    await Promise.all(Array.from({ length: 6 }, worker));
+  };
   window.addEventListener('load', async () => {
+    const clips = loadClips();           // voice first — it's what the child waits for
     await Promise.all(PICS.map(loadPic));
+    await clips;
     for (const name of SOUNDS) await loadScript(`sounds/${name}-mp3.js`);
     if (musicTimer) loadOrchestra();
   });
