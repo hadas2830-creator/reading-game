@@ -616,20 +616,27 @@ const clipAudio = src => {
   return (audioCache[src] = Object.assign(new Audio(url), { preload: 'auto' }));
 };
 let clipToken = 0, clipPlaying = false;
+// our own record of the browser voice: phones (Android Chrome, iOS) can report speechSynthesis.speaking
+// long after it finished, which made the game ignore everything the child said
+let ttsActive = false, ttsUntil = 0;
 function stopVoice() {
-  clipToken++; clipPlaying = false;
+  clipToken++; clipPlaying = false; ttsActive = false;
   Object.values(audioCache).forEach(a => { a.pause(); a.currentTime = 0; });
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending)) speechSynthesis.cancel();
 }
-const isTalking = () => clipPlaying || ('speechSynthesis' in window && (speechSynthesis.speaking || speechSynthesis.pending));
+const isTalking = () => clipPlaying || (ttsActive && Date.now() < ttsUntil);
 function playClips(list, onDone) {
   const token = ++clipToken; clipPlaying = true;
   const next = i => {
     if (token !== clipToken) return;
     if (i >= list.length) { clipPlaying = false; return onDone(); }
     const a = clipAudio(list[i]); a.currentTime = 0;
-    let moved = false; const go = () => { if (!moved) { moved = true; setTimeout(() => next(i + 1), 120); } };
+    let moved = false, safety;
+    const go = () => { if (!moved) { moved = true; clearTimeout(safety); setTimeout(() => next(i + 1), 120); } };
     a.onended = go; a.onerror = go;
+    // on phones the microphone can cut the sound off without an "ended" event — don't wait forever
+    const len = isFinite(a.duration) && a.duration > 0 ? a.duration : 5;
+    safety = setTimeout(go, len * 1000 + 1500);
     a.play().catch(go);
   };
   next(0);
@@ -651,7 +658,11 @@ function speak(text, opts = {}) {
   u.rate = 0.55; u.pitch = 2; // pitch 2 is the highest browsers allow — closest to a child's voice
   currentUtter = u;
   duck(true);
-  u.onend = u.onerror = () => { lastSpeechEnd = Date.now(); if (currentUtter === u && !listening) duck(false); };
+  ttsActive = true; ttsUntil = Date.now() + Math.min(15000, 2000 + text.length * 200); // slow rate: ~200ms a letter
+  u.onend = u.onerror = () => {
+    lastSpeechEnd = Date.now();
+    if (currentUtter === u) { ttsActive = false; if (!listening) duck(false); }
+  };
   speechSynthesis.speak(u);
 }
 
@@ -1377,6 +1388,7 @@ function onSilence(token) {
   const { target } = listening;
   stopListening();
   if (++quiet <= 1) {                     // silence: ask once more, then wait for the mic button
+    const ok = $('#okBtn'); if (ok) ok.hidden = false; // if the mic didn't catch it, a parent can confirm right away
     setBubble('לא שמעתי... תגידו בקול! 🎤');
     speak('לא שמעתי. תגידו בקול!', { noRepeat: true });
     listenSoon(target, token);
