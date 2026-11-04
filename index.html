@@ -643,13 +643,16 @@ function playClips(list, onDone) {
 }
 
 let lastSpoken = '', currentUtter = null;
+let lastSpokenNow = '', lastNameSaid = 0; // what the game is saying now; when it last finished saying the round's letter name
+const spokeName = text => { if (roundTarget && stage === 2 && matches([text], roundTarget)) lastNameSaid = Date.now(); };
 function speak(text, opts = {}) {
   if (!opts.noRepeat) lastSpoken = text;
   stopVoice();
+  lastSpokenNow = plain(text);
   const clips = toClips(text);
   if (clips) {
     duck(true);
-    return playClips(clips, () => { lastSpeechEnd = Date.now(); if (!listening) duck(false); });
+    return playClips(clips, () => { lastSpeechEnd = Date.now(); spokeName(text); if (!listening) duck(false); });
   }
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
@@ -660,7 +663,7 @@ function speak(text, opts = {}) {
   duck(true);
   ttsActive = true; ttsUntil = Date.now() + Math.min(15000, 2000 + text.length * 200); // slow rate: ~200ms a letter
   u.onend = u.onerror = () => {
-    lastSpeechEnd = Date.now();
+    lastSpeechEnd = Date.now(); spokeName(text);
     if (currentUtter === u) { ttsActive = false; if (!listening) duck(false); }
   };
   speechSynthesis.speak(u);
@@ -1353,16 +1356,41 @@ function stopListening() {
 
 function heardLine(text) { const el = $('#heardLine'); if (el) el.textContent = text; }
 
+// words the game itself says: on phones the mic picks up the speaker and the result arrives late,
+// so a sentence made of these words is the game's own voice, not a wrong answer
+let GAME_WORDS = null;
+const gameWords = () => GAME_WORDS || (GAME_WORDS = new Set(
+  [...Object.keys(PHRASE_FILES), ...PRAISE, 'איך קוראים לאות הזאת תגידו בקול', 'לחצו על המיקרופון ותגידו בקול']
+    .flatMap(p => plain(p).split(' '))
+    .filter(w => w.length > 1 && !LETTERS.some(L => L.name === w || L.alt.includes(w))))); // a letter's name is always a real answer
+const isGameEcho = all => all.some(t => {
+  const words = normalize(t).split(/\s+/).filter(Boolean);
+  return words.length > 3 || words.some(w => gameWords().has(w));
+});
+// is the game saying this letter's name right now? (then hearing the name proves nothing)
+const sayingName = L => isTalking() && lastSpokenNow && matches([lastSpokenNow], L);
+
 function heard(all, isFinal) {
-  // ignore the game's own voice: anything heard while it talks or just after
-  if (isTalking() || Date.now() - lastSpeechEnd < 800) return;
+  // the game's own voice: anything heard while it talks or just after —
+  // except the right answer, unless the game itself is saying that letter's name at this moment
+  if (isTalking() || Date.now() - lastSpeechEnd < 800) {
+    const L = listening ? listening.target : roundTarget;
+    if (L && stage === 2 && !locked && $('#theLetter') && !isGameEcho(all) && !sayingName(L) && Date.now() - lastNameSaid > 1500 && matches(all, L)) {
+      stopVoice(); stopListening(); return success($('#theLetter'));
+    }
+    return;
+  }
+  if (isGameEcho(all)) return;            // a late echo of the game's sentence — not the child's answer
   if (!listening) {
     // not actively listening (e.g. waiting for the mic button after silence) — still accept a correct answer
     if (roundTarget && stage === 2 && !locked && $('#theLetter') && matches(all, roundTarget)) success($('#theLetter'));
     return;
   }
   const { target, token } = listening;
-  if (matches(all, target)) { stopListening(); return success($('#theLetter')); }
+  if (matches(all, target)) {
+    if (Date.now() - lastNameSaid < 1500) return; // late echo of the game saying the name (hint) — keep listening
+    stopListening(); return success($('#theLetter'));
+  }
   if (!isFinal) return;                   // still talking — wait for the full word
   stopListening();
   tries++;
