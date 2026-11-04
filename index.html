@@ -409,7 +409,7 @@
 
 <!-- ===== HOME ===== -->
 <section class="screen active" id="home">
-  <div class="hero"><img src="boy.png" alt="ילד שמח עם כיפה ואותיות מעופפות"></div>
+  <div class="hero"><img src="boy.jpg" alt="ילד שמח עם כיפה ואותיות מעופפות"></div>
   <h1 class="title">אותיות קסומות</h1>
   <p class="subtitle">בואו נשחק ונלמד את האותיות! 🌈</p>
   <div class="stages">
@@ -436,7 +436,7 @@
     <button class="round-btn" id="homeBtn" aria-label="חזרה למסך הבית">🏠</button>
     <div class="progress" id="progress"></div>
     <button class="round-btn" id="replayBtn" aria-label="לשמוע שוב">🔊</button>
-    <img class="mascot" id="mascot" src="boy.png" alt="">
+    <img class="mascot" id="mascot" src="boy.jpg" alt="">
   </div>
   <div id="trackBox" style="width:100%"></div>
   <div class="bubble" id="bubble"></div>
@@ -446,7 +446,7 @@
 <!-- ===== WIN ===== -->
 <section class="screen" id="win">
   <div class="win-card">
-    <img src="boy.png" alt="">
+    <img src="boy.jpg" alt="">
     <h2>כל הכבוד! 🎉</h2>
     <div class="win-stars" id="winStars"></div>
     <div>
@@ -1836,11 +1836,22 @@ function lettersDance(done) {
 }
 </script>
 <!-- orchestra instrument samples (FluidR3 General MIDI soundfont, via gleitz/midi-js-soundfonts) -->
-<script src="sounds/flute-mp3.js"></script>
-<script src="sounds/glockenspiel-mp3.js"></script>
-<script src="sounds/pizzicato_strings-mp3.js"></script>
-<script src="sounds/string_ensemble_1-mp3.js"></script>
-<script src="sounds/timpani-mp3.js"></script>
-<script>if (musicTimer) loadOrchestra();</script>
+<!-- pictures first, then the big (12MB) instrument files — on a slow connection they used to block the pictures -->
+<script>
+(() => {
+  const SOUNDS = ['flute', 'glockenspiel', 'pizzicato_strings', 'string_ensemble_1', 'timpani'];
+  const PICS = [...ANIMALS.map(a => a.src), 'bird-cut.png', 'bird-perched.png', 'chick-cut.png', 'dog-cut.png',
+    'doghouse-cut.png', 'nest-scene.png', 'train-cut.png', 'tree-cut.png'];
+  const loadPic = src => new Promise(done => { const i = new Image(); i.onload = i.onerror = done; i.src = src; });
+  const loadScript = src => new Promise(done => {
+    const s = document.createElement('script'); s.src = src; s.onload = s.onerror = done; document.body.appendChild(s);
+  });
+  window.addEventListener('load', async () => {
+    await Promise.all(PICS.map(loadPic));
+    for (const name of SOUNDS) await loadScript(`sounds/${name}-mp3.js`);
+    if (musicTimer) loadOrchestra();
+  });
+})();
+</script>
 </body>
 </html>
